@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>쪽잠 타이머</title>
+<style>
+  :root {
+    --bg1: #0f172a;
+    --bg2: #1e293b;
+    --card: rgba(255, 255, 255, 0.06);
+    --line: rgba(255, 255, 255, 0.12);
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #818cf8;
+    --accent2: #a78bfa;
+    --danger: #f87171;
+    --ok: #34d399;
+    --ih: 48px; /* 다이얼 한 칸 높이 */
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif;
+    color: var(--text);
+    background: radial-gradient(1200px 700px at 50% -10%, #312e81 0%, transparent 60%), linear-gradient(160deg, var(--bg1), var(--bg2));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    min-height: 100%;
+  }
+  .app {
+    width: 100%;
+    max-width: 480px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    padding: 24px 20px 22px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    text-align: center;
+  }
+  h1 { margin: 0 0 4px; font-size: 1.15rem; font-weight: 700; letter-spacing: -0.02em; }
+  .sub { margin: 0 0 18px; color: var(--muted); font-size: 0.85rem; }
+
+  /* 남은 시간 */
+  .display {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: clamp(6px, 2vw, 12px);
+    margin: 6px 0 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .unit { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+  .unit .num {
+    font-size: clamp(3rem, 17vw, 5.2rem);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+  .unit .lab { margin-top: 6px; font-size: 0.8rem; color: var(--muted); }
+  .colon { font-size: clamp(2.4rem, 13vw, 4rem); font-weight: 700; line-height: 1.1; color: var(--muted); opacity: .7; }
+  .app.running .colon { animation: blink 1s steps(2, start) infinite; }
+  @keyframes blink { 50% { opacity: .15; } }
+
+  .progress { height: 6px; border-radius: 999px; background: rgba(255,255,255,.1); overflow: hidden; margin: 0 4px 14px; }
+  .progress > i { display: block; height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: inherit; transition: width .3s linear; }
+
+  /* 메시지 */
+  .message {
+    height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.35rem; font-weight: 800; color: var(--ok);
+    opacity: 0; transform: scale(.9);
+    transition: opacity .25s, transform .25s;
+  }
+  .app.finished .message { opacity: 1; transform: scale(1); animation: pulse 1s ease-in-out infinite; }
+  .message.hint { color: var(--muted); font-size: 0.95rem; font-weight: 600; opacity: 1; transform: none; animation: none; }
+  @keyframes pulse { 50% { transform: scale(1.08); } }
+  .app.finished .display .num { color: var(--ok); }
+
+  /* 다이얼(휠) 설정 */
+  .dials {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin: 4px 0 18px;
+    transition: opacity .2s;
+  }
+  .dials.locked { opacity: .4; pointer-events: none; }
+  .dial-box { display: flex; flex-direction: column; align-items: center; }
+  .dial-box > span { font-size: .8rem; color: var(--muted); margin-bottom: 6px; }
+  .wheel-wrap {
+    position: relative;
+    width: 100%;
+    height: calc(var(--ih) * 3);
+    border-radius: 16px;
+    background: rgba(0, 0, 0, 0.22);
+    overflow: hidden;
+  }
+  /* 가운데 선택 영역 표시 */
+  .wheel-wrap::before {
+    content: "";
+    position: absolute; left: 6px; right: 6px; top: var(--ih); height: var(--ih);
+    border-radius: 12px;
+    background: rgba(129, 140, 248, 0.2);
+    border: 1px solid rgba(129, 140, 248, 0.55);
+    pointer-events: none;
+  }
+  /* 위아래 흐림 */
+  .wheel-wrap::after {
+    content: "";
+    position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to bottom, rgba(15,23,42,.85), transparent 33%, transparent 67%, rgba(15,23,42,.85));
+  }
+  .wheel {
+    position: absolute; inset: 0;
+    overflow-y: auto;
+    scroll-snap-type: y mandatory;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding: var(--ih) 0;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    cursor: grab;
+    outline: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .wheel::-webkit-scrollbar { display: none; }
+  .wheel.dragging { scroll-snap-type: none; cursor: grabbing; user-select: none; }
+  .wheel:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); border-radius: 16px; }
+  .wheel .item {
+    height: var(--ih);
+    display: flex; align-items: center; justify-content: center;
+    scroll-snap-align: center;
+    scroll-snap-stop: always;
+    font-size: 1.5rem; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    user-select: none; -webkit-user-select: none;
+  }
+  .wheel .item.on { color: #fff; }
+
+  /* 버튼 */
+  .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .controls .row2 { display: contents; }
+  button {
+    font: inherit; font-weight: 700; font-size: 1rem;
+    color: var(--text);
+    background: rgba(255,255,255,.08);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 16px 8px;
+    min-height: 56px;
+    cursor: pointer;
+    transition: transform .08s, background .15s, filter .15s;
+    touch-action: manipulation;
+  }
+  button:hover { background: rgba(255,255,255,.14); }
+  button:active { transform: scale(.96); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-start { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: #fff; }
+  .btn-start:hover { filter: brightness(1.1); background: linear-gradient(135deg, var(--accent), var(--accent2)); }
+  .btn-reset { color: var(--danger); }
+  .btn-minus { color: #fda4af; }
+  .btn-plus { color: #86efac; }
+
+  /* 알람 해제 */
+  .alarm-box { display: none; margin: 0 0 16px; }
+  .app.finished .alarm-box { display: block; }
+  .btn-dismiss {
+    width: 100%; min-height: 60px; font-size: 1.15rem; color: #fff; border: none;
+    background: linear-gradient(135deg, #f87171, #fb923c);
+    animation: ringGlow 1s ease-in-out infinite;
+  }
+  .btn-dismiss:hover { background: linear-gradient(135deg, #f87171, #fb923c); filter: brightness(1.1); }
+  @keyframes ringGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, .55); }
+    50% { box-shadow: 0 0 0 10px rgba(248, 113, 113, 0); }
+  }
+  .snooze-note { margin: 8px 0 0; font-size: .82rem; color: var(--muted); }
+
+  .tip { margin: 14px 0 0; font-size: .75rem; color: var(--muted); }
+
+  @media (max-width: 380px) {
+    :root { --ih: 44px; }
+    .app { padding: 20px 14px; border-radius: 22px; }
+    button { font-size: .92rem; padding: 14px 4px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <main class="app" id="app">
+    <h1>😴 쪽잠 타이머</h1>
+    <p class="sub">다이얼을 돌려 시간을 맞추고 시작을 눌러 주세요</p>
+
+    <!-- 남은 시간 -->
+    <section class="display" aria-live="off" aria-label="남은 시간">
+      <div class="unit"><div class="num" id="dH">00</div><div class="lab">시간</div></div>
+      <div class="colon">:</div>
+      <div class="unit"><div class="num" id="dM">00</div><div class="lab">분</div></div>
+      <div class="colon">:</div>
+      <div class="unit"><div class="num" id="dS">00</div><div class="lab">초</div></div>
+    </section>
+
+    <div class="progress" aria-hidden="true"><i id="bar"></i></div>
+    <div class="message" id="msg" role="status" aria-live="polite">일어날 시간~!</div>
+
+    <!-- 알람 해제 (타이머 종료 시에만 표시) -->
+    <div class="alarm-box" id="alarmBox">
+      <button class="btn-dismiss" id="btnDismiss">🔕 알람 해제</button>
+      <p class="snooze-note" id="snoozeNote"></p>
+    </div>
+
+    <!-- 다이얼 -->
+    <section class="dials" id="dials" aria-label="시간 설정 다이얼">
+      <div class="dial-box"><span>시간</span><div class="wheel-wrap"><div class="wheel" id="wH" tabindex="0" role="slider" aria-label="시간" aria-valuemin="0" aria-valuemax="23"></div></div></div>
+      <div class="dial-box"><span>분</span><div class="wheel-wrap"><div class="wheel" id="wM" tabindex="0" role="slider" aria-label="분" aria-valuemin="0" aria-valuemax="59"></div></div></div>
+      <div class="dial-box"><span>초</span><div class="wheel-wrap"><div class="wheel" id="wS" tabindex="0" role="slider" aria-label="초" aria-valuemin="0" aria-valuemax="59"></div></div></div>
+    </section>
+
+    <!-- 버튼 -->
+    <section class="controls">
+      <button class="btn-start" id="btnStart">▶ 시작</button>
+      <button id="btnPause" disabled>⏸ 일시정지</button>
+      <button class="btn-reset" id="btnReset">↺ 초기화</button>
+      <button class="btn-minus" id="btnMinus" style="grid-column: span 1;">− 5분 감소</button>
+      <button class="btn-plus" id="btnPlus" style="grid-column: span 2;">+ 5분 추가</button>
+    </section>
+
+    <p class="tip">휠을 스크롤·드래그하거나 숫자를 눌러 선택하세요 (키보드 ↑↓ 가능)</p>
+  </main>
+
+<script>
+(() => {
+  'use strict';
+
+  const ITEM_H = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--ih')) || 48;
+  const MAX_SEC = 23 * 3600 + 59 * 60 + 59; // 최대 23:59:59
+  const FIVE_MIN = 300;
+  const $ = id => document.getElementById(id);
+  const pad = n => String(n).padStart(2, '0');
+
+  const app = $('app'), msg = $('msg'), bar = $('bar'), dials = $('dials');
+  const dH = $('dH'), dM = $('dM'), dS = $('dS');
+  const btnStart = $('btnStart'), btnPause = $('btnPause'), btnReset = $('btnReset');
+  const btnPlus = $('btnPlus'), btnMinus = $('btnMinus');
+  const btnDismiss = $('btnDismiss'), snoozeNote = $('snoozeNote');
+
+  /* ---------- 상태 ---------- */
+  const state = {
+    status: 'idle',   // idle | running | paused | finished
+    remaining: 0,     // 남은 초
+    total: 0,         // 진행바 기준 총 초
+    endAt: 0,         // 실행 중 종료 예정 시각(ms)
+    timer: null
+  };
+
+  /* ---------- 다이얼(휠) ---------- */
+  function createWheel(el, max, onChange) {
+    const w = { el, value: 0, max, timer: null };
+    for (let i = 0; i <= max; i++) {
+      const d = document.createElement('div');
+      d.className = 'item';
+      d.textContent = pad(i);
+      d.dataset.i = i;
+      el.appendChild(d);
+    }
+    const items = el.children;
+
+    const mark = () => {
+      for (let i = 0; i < items.length; i++) items[i].classList.toggle('on', i === w.value);
+      el.setAttribute('aria-valuenow', w.value);
+    };
+    w.set = (v) => {                   // 코드로 값 설정 (애니메이션 없이)
+      w.value = Math.max(0, Math.min(max, v));
+      el.scrollTop = w.value * ITEM_H();
+      mark();
+    };
+    const settle = () => {             // 스크롤이 멈춘 뒤 값 확정
+      const idx = Math.max(0, Math.min(max, Math.round(el.scrollTop / ITEM_H())));
+      if (idx !== w.value) { w.value = idx; mark(); onChange(); }
+      else mark();
+    };
+    el.addEventListener('scroll', () => {
+      // 스크롤 중에도 가운데 값을 실시간 강조
+      const idx = Math.max(0, Math.min(max, Math.round(el.scrollTop / ITEM_H())));
+      for (let i = 0; i < items.length; i++) items[i].classList.toggle('on', i === idx);
+      clearTimeout(w.timer);
+      w.timer = setTimeout(settle, 120);
+    }, { passive: true });
+
+    // 마우스 드래그 (터치는 기본 스크롤 사용)
+    let drag = null;
+    el.addEventListener('pointerdown', e => {
+      if (e.pointerType !== 'mouse' || e.button !== 0) return;
+      drag = { y: e.clientY, top: el.scrollTop, moved: false };
+      el.setPointerCapture(e.pointerId);
+    });
+    el.addEventListener('pointermove', e => {
+      if (!drag) return;
+      const dy = e.clientY - drag.y;
+      if (!drag.moved && Math.abs(dy) > 4) { drag.moved = true; el.classList.add('dragging'); }
+      if (drag.moved) el.scrollTop = drag.top - dy;
+    });
+    const endDrag = e => {
+      if (!drag) return;
+      const moved = drag.moved;
+      drag = null;
+      el.classList.remove('dragging');
+      if (moved) {
+        el.scrollTo({ top: Math.round(el.scrollTop / ITEM_H()) * ITEM_H(), behavior: 'smooth' });
+      } else {
+        // 단순 클릭: 클릭한 숫자로 이동
+        const r = el.getBoundingClientRect();
+        const offset = Math.floor((e.clientY - r.top) / ITEM_H()) - 1; // -1, 0, +1
+        const target = Math.max(0, Math.min(max, w.value + offset));
+        el.scrollTo({ top: target * ITEM_H(), behavior: 'smooth' });
+      }
+    };
+    el.addEventListener('pointerup', endDrag);
+    el.addEventListener('pointercancel', endDrag);
+
+    // 키보드
+    el.addEventListener('keydown', e => {
+      const step = { ArrowUp: -1, ArrowDown: 1, PageUp: -5, PageDown: 5 }[e.key];
+      if (step === undefined && e.key !== 'Home' && e.key !== 'End') return;
+      e.preventDefault();
+      let t = w.value;
+      if (e.key === 'Home') t = 0; else if (e.key === 'End') t = max; else t += step;
+      t = Math.max(0, Math.min(max, t));
+      el.scrollTo({ top: t * ITEM_H(), behavior: 'smooth' });
+    });
+    return w;
+  }
+
+  const wheelH = createWheel($('wH'), 23, onWheelChange);
+  const wheelM = createWheel($('wM'), 59, onWheelChange);
+  const wheelS = createWheel($('wS'), 59, onWheelChange);
+
+  function onWheelChange() {
+    if (state.status === 'running') return;
+    state.remaining = wheelH.value * 3600 + wheelM.value * 60 + wheelS.value;
+    state.total = state.remaining;
+    if (state.status === 'finished') { silence(); state.status = 'idle'; }
+    clearHint();
+    render(false);
+  }
+
+  function syncWheels() {
+    const r = state.remaining;
+    wheelH.set(Math.floor(r / 3600));
+    wheelM.set(Math.floor((r % 3600) / 60));
+    wheelS.set(r % 60);
+  }
+
+  /* ---------- 화면 갱신 ---------- */
+  function render(syncDial = true) {
+    const r = state.remaining;
+    const h = Math.floor(r / 3600), m = Math.floor((r % 3600) / 60), s = r % 60;
+    dH.textContent = pad(h); dM.textContent = pad(m); dS.textContent = pad(s);
+    bar.style.width = (state.total > 0 ? Math.min(100, (r / state.total) * 100) : 0) + '%';
+
+    app.classList.toggle('running', state.status === 'running');
+    app.classList.toggle('finished', state.status === 'finished');
+    dials.classList.toggle('locked', state.status === 'running');
+    btnStart.disabled = state.status === 'running';
+    btnPause.disabled = state.status !== 'running';
+    btnStart.textContent = state.status === 'paused' ? '▶ 계속' : '▶ 시작';
+
+    document.title = state.status === 'finished' ? '일어날 시간~!'
+      : (r > 0 ? `${pad(h)}:${pad(m)}:${pad(s)} · 쪽잠 타이머` : '쪽잠 타이머');
+
+    if (syncDial) syncWheels();
+  }
+
+  function showHint(text) {
+    msg.textContent = text; msg.classList.add('hint');
+    clearTimeout(showHint.t);
+    showHint.t = setTimeout(clearHint, 2000);
+  }
+  function clearHint() {
+    msg.classList.remove('hint');
+    msg.textContent = '일어날 시간~!';
+  }
+
+  /* ---------- 타이머 동작 ---------- */
+  function tick() {
+    const left = Math.max(0, Math.ceil((state.endAt - Date.now()) / 1000));
+    if (left !== state.remaining) {
+      state.remaining = left;
+      render();
+    }
+    if (left <= 0) finish();
+  }
+
+  function startTicking() {
+    clearInterval(state.timer);
+    state.timer = setInterval(tick, 200);
+  }
+  function stopTicking() { clearInterval(state.timer); state.timer = null; }
+
+  function start() {
+    if (state.status === 'running') return;
+    if (state.status === 'finished') dismiss();   // 종료 상태에서 시작을 누르면 알람부터 해제
+    if (state.remaining <= 0) { showHint('먼저 시간을 설정해 주세요'); return; }
+    ensureAudio();
+    clearHint();
+    if (state.total < state.remaining) state.total = state.remaining;
+    state.endAt = Date.now() + state.remaining * 1000;
+    state.status = 'running';
+    startTicking();
+    requestWakeLock();
+    render();
+  }
+
+  function pause() {
+    if (state.status !== 'running') return;
+    state.remaining = Math.max(0, Math.ceil((state.endAt - Date.now()) / 1000));
+    state.status = 'paused';
+    stopTicking();
+    releaseWakeLock();
+    render();
+  }
+
+  function reset() {
+    stopTicking();
+    releaseWakeLock();
+    silence();
+    state.status = 'idle';
+    state.remaining = 0;
+    state.total = 0;
+    clearHint();
+    render();
+  }
+
+  function addFive() {
+    silence();
+    if (state.status === 'finished') { state.status = 'idle'; state.total = 0; }
+    const before = state.remaining;
+    const next = Math.min(MAX_SEC, before + FIVE_MIN);
+    const delta = next - before;
+    if (delta <= 0) { showHint('최대 23:59:59까지 설정할 수 있어요'); return; }
+    state.remaining = next;
+    state.total = (state.status === 'running' || state.status === 'paused')
+      ? state.total + delta : next;
+    if (state.status === 'running') state.endAt += delta * 1000;
+    clearHint();
+    render();
+  }
+
+  function subFive() {
+    if (state.status === 'finished' || state.remaining <= 0) return;
+    if (state.remaining <= FIVE_MIN) {      // 5분 이하 남음 → 타이머 종료
+      finish();
+      return;
+    }
+    state.remaining -= FIVE_MIN;
+    state.total = Math.max(0, state.total - FIVE_MIN);
+    if (state.status === 'running') state.endAt -= FIVE_MIN * 1000;
+    else state.total = state.status === 'idle' ? state.remaining : state.total;
+    render();
+  }
+
+  function finish() {
+    stopTicking();
+    releaseWakeLock();
+    state.status = 'finished';
+    state.remaining = 0;
+    clearHint();
+    render();
+    playAlarm();
+    if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 800]);
+    startSnoozeCountdown();
+  }
+
+  /* ---------- 알람 소리 (WebAudio, 외부 파일 없음) ---------- */
+  let audioCtx = null, alarmTimer = null;
+  function ensureAudio() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) {}
+  }
+  function beep(freq, when, dur) {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, when);
+    g.gain.exponentialRampToValueAtTime(0.35, when + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start(when); o.stop(when + dur + 0.05);
+  }
+  function playAlarm() {
+    ensureAudio();
+    if (!audioCtx) return;
+    const once = () => {                 // 해제할 때까지(최대 1분) 반복
+      const t = audioCtx.currentTime;
+      beep(880, t, 0.25); beep(1100, t + 0.3, 0.25); beep(880, t + 0.6, 0.25);
+    };
+    stopAlarm();
+    once();
+    alarmTimer = setInterval(once, 1500);
+  }
+  function stopAlarm() { clearInterval(alarmTimer); alarmTimer = null; }
+
+  /* ---------- 알람 해제 / 자동 3분 추가 ---------- */
+  const ALARM_WAIT = 60;    // 해제 대기 시간(초)
+  const SNOOZE_SEC = 180;   // 자동 추가 시간(초) = 3분
+  let snoozeAt = 0, snoozeTimer = null;
+
+  function silence() { stopAlarm(); cancelSnooze(); }   // 소리·대기만 중지
+
+  function dismiss() {                                  // 알람 해제 → 0으로 복귀
+    silence();
+    if (navigator.vibrate) navigator.vibrate(0);
+    state.status = 'idle';
+    state.remaining = 0;
+    state.total = 0;
+    clearHint();
+    render();
+  }
+
+  function startSnoozeCountdown() {
+    cancelSnooze();
+    snoozeAt = Date.now() + ALARM_WAIT * 1000;
+    updateSnoozeNote();
+    snoozeTimer = setInterval(checkSnooze, 250);
+  }
+  function cancelSnooze() {
+    clearInterval(snoozeTimer);
+    snoozeTimer = null;
+    snoozeAt = 0;
+    snoozeNote.textContent = '';
+  }
+  function updateSnoozeNote() {
+    const left = Math.max(0, Math.ceil((snoozeAt - Date.now()) / 1000));
+    snoozeNote.textContent = `${left}초 안에 해제하지 않으면 3분 타이머가 자동으로 시작돼요`;
+  }
+  function checkSnooze() {
+    if (state.status !== 'finished') { cancelSnooze(); return; }
+    if (Date.now() >= snoozeAt) { autoSnooze(); return; }
+    updateSnoozeNote();
+  }
+  function autoSnooze() {                               // 1분간 해제 안 함 → 3분 자동 시작
+    silence();
+    state.status = 'idle';
+    state.remaining = SNOOZE_SEC;
+    state.total = SNOOZE_SEC;
+    start();
+    showHint('3분 타이머가 자동으로 추가됐어요');
+  }
+
+  /* ---------- 화면 꺼짐 방지 (지원 시) ---------- */
+  let wakeLock = null;
+  async function requestWakeLock() {
+    try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+  }
+  function releaseWakeLock() {
+    try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      if (state.status === 'running') { tick(); requestWakeLock(); }
+      else if (state.status === 'finished') checkSnooze();
+    }
+  });
+
+  /* ---------- 이벤트 ---------- */
+  btnStart.addEventListener('click', start);
+  btnPause.addEventListener('click', pause);
+  btnReset.addEventListener('click', reset);
+  btnPlus.addEventListener('click', addFive);
+  btnMinus.addEventListener('click', subFive);
+  btnDismiss.addEventListener('click', dismiss);
+
+  render();
+})();
+</script>
+</body>
+</html>
